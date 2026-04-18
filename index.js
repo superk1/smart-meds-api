@@ -14,39 +14,65 @@ const HEADERS = {
 };
 
 async function tryFahorro(barcode) {
+  // Intentar con AllOrigins
   try {
-    const url = `https://www.fahorro.com/catalogsearch/result/?q=${barcode}`;
-    const { data } = await axios.get(url, { headers: HEADERS, timeout: 10000 });
-    const $ = cheerio.load(data);
-
-    // Intentar múltiples selectores posibles
-    let name = '';
+    console.log(`🔍 Buscando en Fahorro: ${barcode}`);
+    
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.fahorro.com/catalogsearch/result/?q=${barcode}`)}`;
+    const response = await axios.get(proxyUrl, { timeout: 30000 });
+    const html = response.data.contents;
+    const $ = cheerio.load(html);
+    
     const selectors = [
       '.product-item-link',
-      '.product-item-info .product-item-link',
+      '.product-item-name a',
+      '.product.name a',
       'a.product-item-link',
-      '.product-name a',
-      'h2.product-name',
-      '.item-info .product-name',
-      'li.product-item h2 a',
-      '[data-ui-id="page-title-wrapper"]',
-      'ol.products li:first-child a.product-item-link',
+      'li.product-item .product-item-link',
+      '.products-grid .product-item-link',
+      'h2.product-name a',
+      'h3.product-name a'
     ];
-
-    for (const sel of selectors) {
-      name = $(sel).first().text().trim();
-      if (name && name.length > 2) break;
+    
+    let name = '';
+    for (const selector of selectors) {
+      name = $(selector).first().text().trim();
+      if (name && name.length > 2 && !/^\d+$/.test(name)) {
+        console.log(`✅ Fahorro encontró: ${name}`);
+        return { found: true, name: name };
+      }
     }
-
-    return { found: !!name, name, selector_usado: name ? 'encontrado' : 'ninguno' };
-  } catch(e) {
-    return { found: false, error: e.message };
+    
+    console.log(`❌ Fahorro no encontró nombre`);
+    return { found: false };
+    
+  } catch(error) {
+    console.log(`⚠️ AllOrigins falló, intentando directo...`);
+    
+    // Respaldo: intentar directamente sin proxy
+    try {
+      const url = `https://www.fahorro.com/catalogsearch/result/?q=${barcode}`;
+      const response = await axios.get(url, { 
+        headers: HEADERS, 
+        timeout: 30000 
+      });
+      const $ = cheerio.load(response.data);
+      
+      const name = $('.product-item-link').first().text().trim();
+      if (name && name.length > 2 && !/^\d+$/.test(name)) {
+        console.log(`✅ Fahorro (directo) encontró: ${name}`);
+        return { found: true, name: name };
+      }
+      
+      return { found: false };
+    } catch(e) {
+      console.error(`❌ Error en Fahorro: ${e.message}`);
+      return { found: false, error: e.message };
+    }
   }
 }
-
 async function tryBenavides(barcode) {
   try {
-    // URL correcta de Benavides
     const url = `https://www.benavides.com.mx/catalogsearch/result/?q=${barcode}`;
     const { data, status } = await axios.get(url, { headers: HEADERS, timeout: 10000 });
     const $ = cheerio.load(data);
@@ -74,12 +100,30 @@ app.get('/resolve', async (req, res) => {
   const { barcode } = req.query;
   if (!barcode) return res.status(400).json({ error: 'barcode requerido' });
 
-  const r1 = await tryFahorro(barcode);
-  if (r1.found) return res.json({ found: true, name: r1.name, brand: 'Farmacias del Ahorro', source: 'fahorro' });
-
-  const r2 = await tryBenavides(barcode);
-  if (r2.found) return res.json({ found: true, name: r2.name, brand: 'Benavides', source: 'benavides' });
-
+  console.log(`Buscando código: ${barcode}`);
+  
+  // Probar Fahorro PRIMERO
+  const fahorroResult = await tryFahorro(barcode);
+  if (fahorroResult.found) {
+    return res.json({ 
+      found: true, 
+      name: fahorroResult.name, 
+      brand: 'Farmacias del Ahorro', 
+      source: 'fahorro' 
+    });
+  }
+  
+  // Si Fahorro falla, probar Benavides
+  const benavidesResult = await tryBenavides(barcode);
+  if (benavidesResult.found) {
+    return res.json({ 
+      found: true, 
+      name: benavidesResult.name, 
+      brand: 'Benavides', 
+      source: 'benavides' 
+    });
+  }
+  
   return res.json({ found: false });
 });
 
@@ -96,12 +140,12 @@ app.get('/html', async (req, res) => {
   try {
     const url = `https://www.fahorro.com/catalogsearch/result/?q=${barcode}`;
     const { data } = await axios.get(url, { headers: HEADERS, timeout: 10000 });
-    // Devolver los primeros 3000 chars del HTML
     res.send('<pre>' + data.substring(0, 3000).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>');
   } catch(e) {
     res.json({ error: e.message });
   }
 });
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 3000;
