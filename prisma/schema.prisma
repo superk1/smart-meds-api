@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Medicamento {
+  barcode          String   @id
+  name             String
+  brand            String?
+  presentation     String?
+  activeIngredient String?
+  approved         Boolean  @default(false)
+  photoUrl         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("medicamentos")
+}

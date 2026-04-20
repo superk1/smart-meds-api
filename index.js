@@ -3,6 +3,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
 
+
 const app = express();
 app.use(cors());
 
@@ -14,13 +15,20 @@ const HEADERS = {
 };
 
 async function tryFahorro(barcode) {
-  // Intentar con AllOrigins
   try {
     console.log(`🔍 Buscando en Fahorro: ${barcode}`);
     
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.fahorro.com/catalogsearch/result/?q=${barcode}`)}`;
-    const response = await axios.get(proxyUrl, { timeout: 30000 });
-    const html = response.data.contents;
+    // Usar el proxy gratuito cors-anywhere (alternativa)
+    const proxyUrl = `https://cors-anywhere.herokuapp.com/https://www.fahorro.com/catalogsearch/result/?q=${barcode}`;
+    const response = await axios.get(proxyUrl, { 
+      timeout: 20000,
+      headers: {
+        'Origin': 'https://www.fahorro.com',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+    
+    const html = response.data;
     const $ = cheerio.load(html);
     
     const selectors = [
@@ -30,8 +38,7 @@ async function tryFahorro(barcode) {
       'a.product-item-link',
       'li.product-item .product-item-link',
       '.products-grid .product-item-link',
-      'h2.product-name a',
-      'h3.product-name a'
+      'h2.product-name a'
     ];
     
     let name = '';
@@ -43,32 +50,12 @@ async function tryFahorro(barcode) {
       }
     }
     
-    console.log(`❌ Fahorro no encontró nombre`);
+    console.log(`❌ Fahorro no encontró nombre para: ${barcode}`);
     return { found: false };
     
   } catch(error) {
-    console.log(`⚠️ AllOrigins falló, intentando directo...`);
-    
-    // Respaldo: intentar directamente sin proxy
-    try {
-      const url = `https://www.fahorro.com/catalogsearch/result/?q=${barcode}`;
-      const response = await axios.get(url, { 
-        headers: HEADERS, 
-        timeout: 30000 
-      });
-      const $ = cheerio.load(response.data);
-      
-      const name = $('.product-item-link').first().text().trim();
-      if (name && name.length > 2 && !/^\d+$/.test(name)) {
-        console.log(`✅ Fahorro (directo) encontró: ${name}`);
-        return { found: true, name: name };
-      }
-      
-      return { found: false };
-    } catch(e) {
-      console.error(`❌ Error en Fahorro: ${e.message}`);
-      return { found: false, error: e.message };
-    }
+    console.log(`⚠️ Fahorro falló: ${error.message}`);
+    return { found: false };
   }
 }
 async function tryBenavides(barcode) {
